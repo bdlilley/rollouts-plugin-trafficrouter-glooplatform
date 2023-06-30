@@ -1,20 +1,20 @@
-name: Go package
+# name: Go package
 
-on: [push]
+# on: [push]
 
-jobs:
-  build:
+# jobs:
+#   build:
 
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v3
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.20'
-          cache-dependency-path: subdir/go.sum
+#       - name: Set up Go
+#         uses: actions/setup-go@v4
+#         with:
+#           go-version: '1.20'
+#           cache-dependency-path: subdir/go.sum
 
-      - name: Build
-        run: GOOS=linux GOARCH=amd64 go build .
+#       - name: Build
+#         run: GOOS=linux GOARCH=amd64 go build .
 
