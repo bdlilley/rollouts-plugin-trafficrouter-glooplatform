@@ -20,7 +20,7 @@ var handshakeConfig = goPlugin.HandshakeConfig{
 
 func main() {
 	logCtx := log.WithFields(log.Fields{"plugin": "trafficrouter"})
-	log.SetLevel(log.GetLevel())
+	log.SetLevel(log.DebugLevel)
 
 	// log.SetFormatter(utils.CreateFormatter("text"))
 	rpcPluginImp := &plugin.RpcPlugin{

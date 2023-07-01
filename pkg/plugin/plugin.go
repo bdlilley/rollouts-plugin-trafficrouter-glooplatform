@@ -92,7 +92,7 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 
 	// do we need this?
 	if rt == nil {
-		logrus.Debugf("rt not found: %s.%s", glooplatformConfig.RouteTableNamespace, glooplatformConfig.RouteTableName)
+		r.LogCtx.Debugf("rt not found: %s.%s", glooplatformConfig.RouteTableNamespace, glooplatformConfig.RouteTableName)
 		return pluginTypes.RpcError{}
 	}
 
