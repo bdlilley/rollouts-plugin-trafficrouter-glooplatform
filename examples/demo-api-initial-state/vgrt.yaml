@@ -1,0 +1,54 @@
+
+---
+apiVersion: networking.gloo.solo.io/v2
+kind: VirtualGateway
+metadata:
+  name: ingress
+  namespace: gloo-mesh
+spec:
+  listeners:
+  - http: {}
+    port:
+      number: 80
+  workloads:
+  - selector:
+      labels:
+        istio: ingressgateway
+---
+apiVersion: networking.gloo.solo.io/v2
+kind: RouteTable
+metadata:
+  name: default
+  namespace: gloo-mesh
+spec:
+  hosts:
+    - '*'
+  virtualGateways:
+    - name: ingress
+      namespace: gloo-mesh
+  http:
+  - name: sanity
+    matchers:
+      - uri:
+          prefix: /sanity
+    labels:
+      route: sanity
+    directResponse:
+      status: 200
+      body: "it's alive"
+  - name: httpbin
+    matchers:
+      - uri:
+          prefix: /httpbin
+    labels:
+      route: httpbin
+    forwardTo:
+      pathRewrite: /
+      destinations:
+      - ref:
+          name: stable
+          namespace: gloo-rollout-demo
+        port:
+          number: 8000
+        kind: SERVICE
+

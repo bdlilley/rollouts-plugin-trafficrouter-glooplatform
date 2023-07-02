@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: gloo-platform
+  namespace: httpbin
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: httpbin
+  template:
+    metadata:
+      labels:
+        app: httpbin
+    spec:
+      serviceAccountName: httpbin
+      containers:
+      - image:  citizenstig/httpbin
+        imagePullPolicy: IfNotPresent
+        name: httpbin
+        ports:
+        - containerPort: 80
+  strategy:
+    canary:
+      canaryService: canary
+      stableService: httpbin
+      trafficRouting:
+        plugins:
+          solo-io/glooplatformAPI:
+            routeTableName: default
+            routeTableNamespace: gloo-mesh
+            destinationKind: SERVICE
+            destinationNamespace: httpbin
+      steps:
+      - setWeight: 10
+      - pause: {}
+      - setWeight: 100
