@@ -1,24 +1,22 @@
-/* POC to support argo rollouts for Gloo Platform.  This is a POC to demonstrate the argo architecture.
- * TODO:
- * - support different forwardTo.destination.kinds
- * - account for a matched destination already having "static" (non-canary) weighted routing
- * - handle different destination types between stable and canary
- * - remove canary destination when rollout is complete (right now just sets to 0 weight)
- * - clean up duplicated code in getHttpRefs
- */
+/*
+This code is a POC.  It is NOT stable and not for production use!
+
+See README.md for maturity gaps.
+*/
 package plugin
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
 	pluginTypes "github.com/argoproj/argo-rollouts/utils/plugin/types"
+	"github.com/bensolo-io/rollouts-plugin-trafficrouter-glooplatform/pkg/util"
 	"github.com/sirupsen/logrus"
 	solov2 "github.com/solo-io/solo-apis/client-go/common.gloo.solo.io/v2"
 	networkv2 "github.com/solo-io/solo-apis/client-go/networking.gloo.solo.io/v2"
-	clientcmd "k8s.io/client-go/tools/clientcmd"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -42,31 +40,14 @@ type GlooPlatformAPITrafficRouting struct {
 }
 
 func (r *RpcPlugin) InitPlugin() pluginTypes.RpcError {
-	if r.IsTest {
-		return pluginTypes.RpcError{}
-	}
-	cfg, err := clientcmd.NewDefaultClientConfigLoadingRules().Load()
+	r.LogCtx = r.LogCtx.WithField("PluginName", PluginName)
+	k, err := util.NewSoloNetworkV2K8sClient()
 	if err != nil {
 		return pluginTypes.RpcError{
 			ErrorString: err.Error(),
 		}
 	}
-
-	kubeConfig := clientcmd.NewDefaultClientConfig(*cfg, &clientcmd.ConfigOverrides{})
-	clientConfig, err := kubeConfig.ClientConfig()
-	if err != nil {
-		return pluginTypes.RpcError{
-			ErrorString: err.Error(),
-		}
-	}
-
-	networkv2Clientset, err := networkv2.NewClientsetFromConfig(clientConfig)
-	if err != nil {
-		return pluginTypes.RpcError{
-			ErrorString: err.Error(),
-		}
-	}
-	r.Client = networkv2Clientset
+	r.Client = k
 	return pluginTypes.RpcError{}
 }
 
@@ -90,40 +71,58 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 		}
 	}
 
-	// do we need this?
+	// do we need this (not sure if not found yields an error)?
 	if rt == nil {
 		r.LogCtx.Debugf("rt not found: %s.%s", glooplatformConfig.RouteTableNamespace, glooplatformConfig.RouteTableName)
 		return pluginTypes.RpcError{}
 	}
 
-	// get the stable destination
-	_, stableDest, canaryDest := getHttpRefs(rollout.Spec.Strategy.Canary.StableService, rollout.Spec.Strategy.Canary.CanaryService, glooplatformConfig, rt)
+	r.LogCtx.Debugf("found RT %s", rt.Name)
 
+	// get the stable destination
+	httpRoute, stableDest, canaryDest, err := r.getHttpRefs(rollout.Spec.Strategy.Canary.StableService, rollout.Spec.Strategy.Canary.CanaryService, glooplatformConfig, rt)
+	if err != nil {
+		return pluginTypes.RpcError{
+			ErrorString: err.Error(),
+		}
+	}
+
+	if stableDest == nil {
+		return pluginTypes.RpcError{
+			ErrorString: fmt.Sprintf("failed to find RT %s.%s", glooplatformConfig.RouteTableNamespace, glooplatformConfig.RouteTableName),
+		}
+	}
 	remainingWeight := 100 - desiredWeight
 	stableDest.Weight = uint32(remainingWeight)
 
 	// if this is first step, the canary route must be created
 	// this a dumb clone of the stable destination for POC purposes
 	if canaryDest == nil {
-		b, err := json.Marshal(stableDest)
-		if err != nil {
-			return pluginTypes.RpcError{
-				ErrorString: err.Error(),
-			}
+		// {"RefKind":{"Ref":{"name":"httpbin","namespace":"httpbin"}},"port":{"Specifier":{"Number":8000}},"weight":100}
+		canaryDest = &solov2.DestinationReference{
+			Kind: stableDest.Kind,
+			Port: &solov2.PortSelector{
+				Specifier: &solov2.PortSelector_Number{
+					Number: stableDest.Port.GetNumber(),
+				},
+			},
+			RefKind: &solov2.DestinationReference_Ref{
+				Ref: &solov2.ObjectReference{
+					Name:      rollout.Spec.Strategy.Canary.CanaryService,
+					Namespace: stableDest.GetRef().Namespace,
+				},
+			},
 		}
-		canaryDest = &solov2.DestinationReference{}
-		err = json.Unmarshal(b, canaryDest)
-		if err != nil {
-			return pluginTypes.RpcError{
-				ErrorString: err.Error(),
-			}
-		}
-		canaryDest.GetRef().Name = rollout.Spec.Strategy.Canary.CanaryService
+		httpRoute.GetForwardTo().Destinations = append(httpRoute.GetForwardTo().Destinations, canaryDest)
 	}
+
 	canaryDest.Weight = uint32(desiredWeight)
+
+	r.LogCtx.Debugf("attempting to set stable=%d, canary=%d", stableDest.Weight, canaryDest.Weight)
 
 	err = r.Client.RouteTables().UpdateRouteTable(ctx, rt, &k8sclient.UpdateOptions{})
 	if err != nil {
+		r.LogCtx.Error(err.Error())
 		return pluginTypes.RpcError{
 			ErrorString: err.Error(),
 		}
@@ -145,41 +144,7 @@ func (r *RpcPlugin) VerifyWeight(rollout *v1alpha1.Rollout, desiredWeight int32,
 }
 
 func (r *RpcPlugin) RemoveManagedRoutes(rollout *v1alpha1.Rollout) pluginTypes.RpcError {
-	ctx := context.TODO()
-	glooplatformConfig, err := getPluginConfig(rollout)
-	if err != nil {
-		return pluginTypes.RpcError{
-			ErrorString: err.Error(),
-		}
-	}
-
-	rt, err := r.getRouteTable(ctx, glooplatformConfig)
-	if err != nil {
-		return pluginTypes.RpcError{
-			ErrorString: err.Error(),
-		}
-	}
-
-	_, stableDest, canaryDest := getHttpRefs(rollout.Spec.Strategy.Canary.StableService, rollout.Spec.Strategy.Canary.CanaryService, glooplatformConfig, rt)
-	if err != nil {
-		return pluginTypes.RpcError{
-			ErrorString: err.Error(),
-		}
-	}
-
-	// TODO - actually remove the destination instead of setting 0 weight
-	if canaryDest != nil {
-		canaryDest.Weight = 0
-	}
-	stableDest.Weight = 100
-
-	err = r.Client.RouteTables().UpdateRouteTable(ctx, rt, &k8sclient.UpdateOptions{})
-	if err != nil {
-		return pluginTypes.RpcError{
-			ErrorString: err.Error(),
-		}
-	}
-
+	// we could remove the canary destination, but not required since it will have 0 weight at the end of rollout
 	return pluginTypes.RpcError{}
 }
 
@@ -189,11 +154,6 @@ func (r *RpcPlugin) Type() string {
 
 func getPluginConfig(rollout *v1alpha1.Rollout) (*GlooPlatformAPITrafficRouting, error) {
 	glooplatformConfig := GlooPlatformAPITrafficRouting{}
-
-	// not sure if this is required - do all plugins get all rollouts routed to them?
-	if _, pluginFound := rollout.Spec.Strategy.Canary.TrafficRouting.Plugins[PluginName]; !pluginFound {
-		return nil, nil
-	}
 
 	err := json.Unmarshal(rollout.Spec.Strategy.Canary.TrafficRouting.Plugins[PluginName], &glooplatformConfig)
 	if err != nil {
@@ -210,7 +170,7 @@ func (r *RpcPlugin) getRouteTable(ctx context.Context, trafficConfig *GlooPlatfo
 	})
 }
 
-func getHttpRefs(stableServiceName string, canaryServiceName string, trafficConfig *GlooPlatformAPITrafficRouting, rt *networkv2.RouteTable) (route *networkv2.HTTPRoute, stable *solov2.DestinationReference, canary *solov2.DestinationReference) {
+func (r *RpcPlugin) getHttpRefs(stableServiceName string, canaryServiceName string, trafficConfig *GlooPlatformAPITrafficRouting, rt *networkv2.RouteTable) (route *networkv2.HTTPRoute, stable *solov2.DestinationReference, canary *solov2.DestinationReference, err error) {
 	for _, httpRoute := range rt.Spec.Http {
 		fw := httpRoute.GetForwardTo()
 		if fw != nil {
@@ -241,5 +201,12 @@ func getHttpRefs(stableServiceName string, canaryServiceName string, trafficConf
 			return
 		}
 	} // end http route loop
-	return nil, nil, nil
+
+	if route == nil {
+		err = fmt.Errorf("failed to find an http route that references stable service %s in RouteTable %s.%s", stableServiceName, rt.Namespace, rt.Name)
+		return
+	}
+
+	err = fmt.Errorf("failed to find a destination that references stable service %s in RouteTable %s.%s in http route %s", stableServiceName, rt.Namespace, rt.Name, route.Name)
+	return
 }

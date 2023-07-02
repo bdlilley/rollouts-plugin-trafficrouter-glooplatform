@@ -22,15 +22,14 @@ func main() {
 	logCtx := log.WithFields(log.Fields{"plugin": "trafficrouter"})
 	log.SetLevel(log.DebugLevel)
 
-	// log.SetFormatter(utils.CreateFormatter("text"))
 	rpcPluginImp := &plugin.RpcPlugin{
 		LogCtx: logCtx,
 	}
-	//  pluginMap is the map of plugins we can dispense.
+
 	var pluginMap = map[string]goPlugin.Plugin{
 		"RpcTrafficRouterPlugin": &rolloutsPlugin.RpcTrafficRouterPlugin{Impl: rpcPluginImp},
 	}
-	logCtx.Debug("message from plugin", "foo", "bar")
+
 	goPlugin.Serve(&goPlugin.ServeConfig{
 		HandshakeConfig: handshakeConfig,
 		Plugins:         pluginMap,
