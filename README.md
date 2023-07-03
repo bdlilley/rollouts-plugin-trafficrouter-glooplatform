@@ -34,6 +34,8 @@ The workflow:
   * If not first deployment, compares pod template hashes of the existing ReplicaSet to determine if any change is required
     * If a change is required, performs the canary or blue/green rollout according to the Rollout spec
 
+See the [./examples](./examples) folder; [./examples/0-rollout-initial/](./examples/0-rollout-initial/) and [./examples/1-rollout-first-change/](./examples/1-rollout-first-change/) demonstrate the initial Rollout created with a `v1` image, followed by a 4-step canary update to `v2`.
+
 ### Plugin Architecture & Installation
 
 Argo Rollouts uses Hashi's [go-plugin pacakge](https://github.com/hashicorp/go-plugin); plugins are simply binaries you create in go that adhere to an rpc interface defined by Argo Rollouts and implemented with go-plugin.
