@@ -74,7 +74,8 @@ This example demonstrates a progressive canary rollout of a demo api.  The demo 
 1. Install Argo Rollouts; this manifest uses an image with the Gloo Platform plugin bundled and contains the Argo Rollouts configmap
     ```
     kubectl create ns argo-rollouts
-    kubectl apply -f ./examples/_install_rollouts/argo-rollouts.yaml
+    kubectl label ns argo-rollouts istio.io/rev=1-17-2
+    kubectl apply -f ./examples/_install_rollouts/argo-rollouts.yaml -n argo-rollouts
     ```
 1. Create the workload initial state - this includes K8s services, Gloo VirtualGateway and RouteTable but not deployments
     ```
