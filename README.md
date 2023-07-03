@@ -8,20 +8,40 @@ Patterns were based on the K8s gateway api plugin found [here](https://github.co
 
 ### Rollouts Concepts
 
-Think of Argo Rollout CR like a replacement for the K8s Deployment CR.  The Rollout contains 2 primary configs:
+Think of Argo Rollout CR like a replacement for the K8s Deployment CR.  
+
+![image](./docs/Rollouts-Architecture.png)
+
+The Rollout contains 2 primary configs:
 
 * a pod template similar to what you would use in a Deployment
 * the configs and strategy for the Rollout operation (steps, weights, pauses, etc.)
 
 While you can *reference* a Deployment as a way to get the pod template details, Rollouts still will not manage the referenced deployment directly. 
 
-Here is the workflow:
+The workflow:
 
 * Create stable and canary (or blue / green) k8s services
 * Create gateway/ingress resources that route to the stable service
 * Do NOT create a deployment :) 
 * Create a Rollout that contains a pod template that would have been used in a deployment
-*  
+* Rollout controller:
+  * If this is first deployment of the Rollout, creates an initial ReplicaSet
+  * If not first deployment, compares pod template hashes of the existing ReplicaSet to determine if any change is required
+    * If a change is required, performs the canary or blue/green rollout according to the Rollout spec
+
+### Plugin Architecture & Installation
+
+Argo Rollouts uses Hashi's [go-plugin pacakge](https://github.com/hashicorp/go-plugin); plugins are simply binaries you create in go that adhere to an rpc interface defined by Argo Rollouts and implemented with go-plugin.
+
+Plugins may be bundled in an Argo Rollouts controller image, or may be downloaded to the vanilla image on container startup.
+
+  trafficRouterPlugins: "- name: \"solo-io/glooplatformAPI\"\n  location: \"file://./plugin-linux-amd64\" "
+
+  trafficRouterPlugins: |-
+    - name: "solo-io/glooplatformAPI"
+      location: "https://github.com/bensolo-io/rollouts-plugin-trafficrouter-glooplatform/releases/download/v0.0.0/rollouts-plugin-trafficrouter-glooplatform-linux-amd64"
+
 
 ### Example
 kubectl apply -f ./examples/demo-api-initial-state
