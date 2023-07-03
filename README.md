@@ -6,6 +6,10 @@ This repo contains a POC implementation of an [Argo Rollouts plugin](https://arg
 
 Patterns were based on the K8s gateway api plugin found [here](https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi).
 
+View the recorded demo here - this is roughly what is documented in the example section below.
+
+TODO youtube video link
+
 ### Rollouts Concepts
 
 Think of Argo Rollout CR like a replacement for the K8s Deployment CR.  
