@@ -93,10 +93,9 @@ This example demonstrates a progressive canary rollout of a demo api.  The demo 
     kubectl apply -f ./examples/1-rollout-first-change 
     ```
 1. In the Argo Rollouts UI you should see that the rollout did step 1 for 10% canary weight, then paused for manual user validation:
-2. 
-    ![image](./docs/Rollout-Canary-Step-1.png)
-3. If you spam the demo api with requests you should see a mixture of `v1` and `v2`
-4. From here you can progress through each step manually or you can click "promote full" to go straight to 100%
+    - ![image](./docs/Rollout-Canary-Step-1.png)
+1. If you spam the demo api with requests you should see a mixture of `v1` and `v2`
+2. From here you can progress through each step manually or you can click "promote full" to go straight to 100%
 
 ### Gloo UI UX
 
