@@ -36,12 +36,12 @@ spec:
     directResponse:
       status: 200
       body: "it's alive"
-  - name: httpbin
+  - name: demo
     matchers:
       - uri:
-          prefix: /httpbin
+          prefix: /demo
     labels:
-      route: httpbin
+      route: demo
     forwardTo:
       pathRewrite: /
       destinations:
@@ -49,6 +49,6 @@ spec:
           name: stable
           namespace: gloo-rollout-demo
         port:
-          number: 8000
+          number: 8080
         kind: SERVICE
 

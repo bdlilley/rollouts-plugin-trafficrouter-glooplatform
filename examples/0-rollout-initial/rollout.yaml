@@ -12,7 +12,6 @@ spec:
     metadata:
       labels:
         app: gloo-rollout-demo
-      namespace: gloo-rollout-demo
     spec:
       containers:
       - image:  kodacd/argo-rollouts-demo-api:v1
