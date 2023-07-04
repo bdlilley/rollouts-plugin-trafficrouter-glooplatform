@@ -74,7 +74,6 @@ This example demonstrates a progressive canary rollout of a demo api.  The demo 
 1. Install Argo Rollouts; this manifest uses an image with the Gloo Platform plugin bundled and contains the Argo Rollouts configmap
     ```
     kubectl create ns argo-rollouts
-    kubectl label ns argo-rollouts istio.io/rev=1-17-2
     kubectl apply -f ./examples/_install_rollouts/argo-rollouts.yaml -n argo-rollouts
     ```
 1. Create the workload initial state - this includes K8s services, Gloo VirtualGateway and RouteTable but not deployments
@@ -102,7 +101,9 @@ This example demonstrates a progressive canary rollout of a demo api.  The demo 
 1. In the Argo Rollouts UI you should see that the rollout did step 1 for 10% canary weight, then paused for manual user validation:
     - ![image](./docs/Rollout-Canary-Step-1.png)
 1. If you spam the demo api with requests you should see a mixture of `v1` and `v2`
-2. From here you can progress through each step manually or you can click "promote full" to go straight to 100%
+1. From here you can progress through each step manually or you can click "promote full" to go straight to 100%
+
+For the recorded demo I generated some load with a curl loop and verified the canary split with promql `sum by (destination_workload_id) (rate(istio_requests_total[5m]))`
 
 ### Gloo UI UX
 
