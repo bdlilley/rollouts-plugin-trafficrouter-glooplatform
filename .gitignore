@@ -1,3 +1,4 @@
 rollouts-plugin-trafficrouter-glooplatform
 main
 dist
+.DS_Store
