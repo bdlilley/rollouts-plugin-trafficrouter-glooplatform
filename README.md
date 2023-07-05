@@ -122,7 +122,6 @@ Regardless of which APIs Gloo does/will support, there will always be a Gloo plu
 - implement label selectors for RouteTable and Route lookup
 - handle different destination types between stable and canary
 - remove canary destination when Rollout is complete (right now just sets to 0 weight at end of promotion)
-- clean up duplicated code in getHttpRefs
 - handle named ports
 - add more advanced features to the rollout metadata that is passed to our plugin; i.e. this section could be enhanced with other Gloo capabilities:
 

@@ -41,6 +41,12 @@ type GlooPlatformAPITrafficRouting struct {
 	DestinationNamespace string `json:"destinationNamespace" protobuf:"bytes,2,name=destinationNamespace"`
 }
 
+func (g *GlooPlatformAPITrafficRouting) matchesObjectRef(ref *solov2.ObjectReference, serviceName string) bool {
+	return ref != nil &&
+		strings.EqualFold(ref.Namespace, g.DestinationNamespace) &&
+		strings.EqualFold(ref.Name, serviceName)
+}
+
 func (r *RpcPlugin) InitPlugin() pluginTypes.RpcError {
 	if r.MockRouteTable != nil {
 		return pluginTypes.RpcError{}
@@ -106,8 +112,7 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 	remainingWeight := 100 - desiredWeight
 	stableDest.Weight = uint32(remainingWeight)
 
-	// if this is first step, the canary route must be created
-	// this a dumb clone of the stable destination for POC purposes
+	// if this is first step, the canary route may need to be created
 	if canaryDest == nil {
 		// {"RefKind":{"Ref":{"name":"httpbin","namespace":"httpbin"}},"port":{"Specifier":{"Number":8000}},"weight":100}
 		canaryDest = &solov2.DestinationReference{
@@ -190,18 +195,12 @@ func getHttpRefs(stableServiceName string, canaryServiceName string, trafficConf
 			for _, dest := range fw.Destinations {
 				if strings.EqualFold(dest.Kind.String(), trafficConfig.DestinationKind) {
 					ref := dest.GetRef()
-					// did we find the stable ref?
-					if ref != nil &&
-						strings.EqualFold(ref.Namespace, trafficConfig.DestinationNamespace) &&
-						strings.EqualFold(ref.Name, stableServiceName) {
+					if trafficConfig.matchesObjectRef(ref, stableServiceName) {
 						route = httpRoute
 						stable = dest
 						continue
 					}
-					// TODO clean up duplicate code (only difference is stable vs. canary)
-					if ref != nil &&
-						strings.EqualFold(ref.Namespace, trafficConfig.DestinationNamespace) &&
-						strings.EqualFold(ref.Name, canaryServiceName) {
+					if trafficConfig.matchesObjectRef(ref, canaryServiceName) {
 						canary = dest
 						continue
 					}
