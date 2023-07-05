@@ -8,10 +8,14 @@ import (
 )
 
 const (
-	RouteTableName       = "httpbin"
-	RouteTableNamespace  = "httpbin"
+	RouteTableName       = "mock"
+	RouteTableNamespace  = "mock"
 	DestinationKind      = "SERVICE"
-	DestinationNamespace = "httpbin"
+	DestinationNamespace = "mock"
+	StableService        = "stable"
+	CanaryService        = "canary"
+	RolloutNamespace     = "mock"
+	RolloutName          = "mock"
 )
 
 var RouteTable = networkv2.RouteTable{
@@ -37,7 +41,7 @@ var RouteTable = networkv2.RouteTable{
 								},
 								RefKind: &commonv2.DestinationReference_Ref{
 									Ref: &commonv2.ObjectReference{
-										Name:      RouteTableName,
+										Name:      StableService,
 										Namespace: DestinationNamespace,
 									},
 								},

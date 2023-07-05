@@ -28,8 +28,10 @@ const (
 
 type RpcPlugin struct {
 	IsTest bool
-	LogCtx *logrus.Entry
-	Client networkv2.Clientset
+	// temporary hack until mock clienset is fixed (missing some interface methods)
+	MockRouteTable *networkv2.RouteTable
+	LogCtx         *logrus.Entry
+	Client         networkv2.Clientset
 }
 
 type GlooPlatformAPITrafficRouting struct {
@@ -40,6 +42,10 @@ type GlooPlatformAPITrafficRouting struct {
 }
 
 func (r *RpcPlugin) InitPlugin() pluginTypes.RpcError {
+	if r.MockRouteTable != nil {
+		return pluginTypes.RpcError{}
+	}
+
 	r.LogCtx = r.LogCtx.WithField("PluginName", PluginName)
 	k, err := util.NewSoloNetworkV2K8sClient()
 	if err != nil {
@@ -64,11 +70,16 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 		}
 	}
 
-	rt, err := r.getRouteTable(ctx, glooplatformConfig)
-	if err != nil {
-		return pluginTypes.RpcError{
-			ErrorString: err.Error(),
+	var rt *networkv2.RouteTable
+	if r.MockRouteTable == nil {
+		rt, err = r.getRouteTable(ctx, glooplatformConfig)
+		if err != nil {
+			return pluginTypes.RpcError{
+				ErrorString: err.Error(),
+			}
 		}
+	} else {
+		rt = r.MockRouteTable
 	}
 
 	// do we need this (not sure if not found yields an error)?
@@ -80,7 +91,7 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 	r.LogCtx.Debugf("found RT %s", rt.Name)
 
 	// get the stable destination
-	httpRoute, stableDest, canaryDest, err := r.getHttpRefs(rollout.Spec.Strategy.Canary.StableService, rollout.Spec.Strategy.Canary.CanaryService, glooplatformConfig, rt)
+	httpRoute, stableDest, canaryDest, err := getHttpRefs(rollout.Spec.Strategy.Canary.StableService, rollout.Spec.Strategy.Canary.CanaryService, glooplatformConfig, rt)
 	if err != nil {
 		return pluginTypes.RpcError{
 			ErrorString: err.Error(),
@@ -120,11 +131,13 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 
 	r.LogCtx.Debugf("attempting to set stable=%d, canary=%d", stableDest.Weight, canaryDest.Weight)
 
-	err = r.Client.RouteTables().UpdateRouteTable(ctx, rt, &k8sclient.UpdateOptions{})
-	if err != nil {
-		r.LogCtx.Error(err.Error())
-		return pluginTypes.RpcError{
-			ErrorString: err.Error(),
+	if r.MockRouteTable == nil {
+		err = r.Client.RouteTables().UpdateRouteTable(ctx, rt, &k8sclient.UpdateOptions{})
+		if err != nil {
+			r.LogCtx.Error(err.Error())
+			return pluginTypes.RpcError{
+				ErrorString: err.Error(),
+			}
 		}
 	}
 
@@ -170,7 +183,7 @@ func (r *RpcPlugin) getRouteTable(ctx context.Context, trafficConfig *GlooPlatfo
 	})
 }
 
-func (r *RpcPlugin) getHttpRefs(stableServiceName string, canaryServiceName string, trafficConfig *GlooPlatformAPITrafficRouting, rt *networkv2.RouteTable) (route *networkv2.HTTPRoute, stable *solov2.DestinationReference, canary *solov2.DestinationReference, err error) {
+func getHttpRefs(stableServiceName string, canaryServiceName string, trafficConfig *GlooPlatformAPITrafficRouting, rt *networkv2.RouteTable) (route *networkv2.HTTPRoute, stable *solov2.DestinationReference, canary *solov2.DestinationReference, err error) {
 	for _, httpRoute := range rt.Spec.Http {
 		fw := httpRoute.GetForwardTo()
 		if fw != nil {

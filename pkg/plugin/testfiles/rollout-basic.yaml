@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: mock
+  namespace: mock
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mock
+  template:
+    metadata:
+      labels:
+        app: mock
+    spec:
+      containers:
+      - image:  kodacd/argo-rollouts-demo-api:v1
+        imagePullPolicy: IfNotPresent
+        name: mock
+        ports:
+        - containerPort: 8080
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+  strategy:
+    canary:
+      canaryService: canary
+      stableService: stable
+      trafficRouting:
+        plugins:
+          solo-io/glooplatformAPI:
+            routeTableName: mock
+            routeTableNamespace: mock
+            destinationKind: SERVICE
+            destinationNamespace: mock
+      steps:
+      - setWeight: 10
+      - pause: {}
+      - setWeight: 50
+      - pause: {}
+      - setWeight: 100
