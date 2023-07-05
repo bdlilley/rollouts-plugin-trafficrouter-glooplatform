@@ -14757,6 +14757,12 @@ metadata:
   name: argo-rollouts
 rules:
 - apiGroups:
+  - networking.gloo.solo.io
+  resources:
+  - routetables
+  verbs:
+  - '*'
+- apiGroups:
   - argoproj.io
   resources:
   - rollouts
