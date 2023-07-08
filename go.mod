@@ -3,7 +3,10 @@ module github.com/bensolo-io/rollouts-plugin-trafficrouter-glooplatform
 go 1.19
 
 require (
+	github.com/PaesslerAG/gval v1.2.2
+	github.com/PaesslerAG/jsonpath v0.1.1
 	github.com/argoproj/argo-rollouts v1.5.1
+	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
 	github.com/hashicorp/go-plugin v1.4.9
 	github.com/sirupsen/logrus v1.9.0
 	github.com/solo-io/solo-apis v1.6.32-0.20230623162622-377f95c0a7c7
@@ -31,7 +34,6 @@ require (
 	github.com/go-task/slim-sprig v2.20.0+incompatible // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
-	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/gnostic v0.6.9 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
@@ -58,6 +60,7 @@ require (
 	github.com/prometheus/common v0.42.0 // indirect
 	github.com/prometheus/procfs v0.9.0 // indirect
 	github.com/rotisserie/eris v0.5.4 // indirect
+	github.com/shopspring/decimal v1.3.1 // indirect
 	github.com/solo-io/cue v0.4.7 // indirect
 	github.com/solo-io/go-utils v0.24.2 // indirect
 	github.com/solo-io/protoc-gen-ext v0.0.18 // indirect

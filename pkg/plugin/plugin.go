@@ -29,7 +29,7 @@ const (
 type RpcPlugin struct {
 	IsTest bool
 	// temporary hack until mock clienset is fixed (missing some interface methods)
-	MockRouteTable *networkv2.RouteTable
+	TestRouteTable *networkv2.RouteTable
 	LogCtx         *logrus.Entry
 	Client         networkv2.Clientset
 }
@@ -41,6 +41,38 @@ type GlooPlatformAPITrafficRouting struct {
 	DestinationNamespace string `json:"destinationNamespace" protobuf:"bytes,2,name=destinationNamespace"`
 }
 
+type GlooMatchedRouteTable struct {
+	// matched gloo platform route table
+	RouteTable *networkv2.RouteTable
+	// matched http routes within the routetable
+	HttpRoutes []*GlooMatchedHttpRoutes
+	// matched tcp routes within the routetable
+	TCPRoutes []*GlooMatchedTCPRoutes
+	// matched tls routes within the routetable
+	TLSRoutes []*GlooMatchedTLSRoutes
+}
+
+type GlooMatchedHttpRoutes struct {
+	// matched HttpRoute
+	HttpRoute *networkv2.HTTPRoute
+	// matched destinations within the httpRoute
+	Destinations []*solov2.DestinationReference
+}
+
+type GlooMatchedTLSRoutes struct {
+	// matched HttpRoute
+	TLSRoute *networkv2.TLSRoute
+	// matched destinations within the httpRoute
+	Destinations []*solov2.DestinationReference
+}
+
+type GlooMatchedTCPRoutes struct {
+	// matched HttpRoute
+	TCPRoute *networkv2.TCPRoute
+	// matched destinations within the httpRoute
+	Destinations []*solov2.DestinationReference
+}
+
 func (g *GlooPlatformAPITrafficRouting) matchesObjectRef(ref *solov2.ObjectReference, serviceName string) bool {
 	return ref != nil &&
 		strings.EqualFold(ref.Namespace, g.DestinationNamespace) &&
@@ -48,7 +80,7 @@ func (g *GlooPlatformAPITrafficRouting) matchesObjectRef(ref *solov2.ObjectRefer
 }
 
 func (r *RpcPlugin) InitPlugin() pluginTypes.RpcError {
-	if r.MockRouteTable != nil {
+	if r.IsTest {
 		return pluginTypes.RpcError{}
 	}
 
@@ -76,22 +108,33 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 		}
 	}
 
+	// TODO get matching RTs, routes, and destinations
+	var rts []*GlooMatchedRouteTable
+
+	if rollout.Spec.Strategy.Canary != nil {
+		return r.handleCanary(rollout, rts)
+	} else if rollout.Spec.Strategy.BlueGreen != nil {
+		return r.handleBlueGreen(rollout)
+	}
+
 	var rt *networkv2.RouteTable
-	if r.MockRouteTable == nil {
+
+	if !r.IsTest {
 		rt, err = r.getRouteTable(ctx, glooplatformConfig)
 		if err != nil {
 			return pluginTypes.RpcError{
 				ErrorString: err.Error(),
 			}
 		}
-	} else {
-		rt = r.MockRouteTable
+	} else if r.TestRouteTable != nil {
+		rt = r.TestRouteTable
 	}
 
 	// do we need this (not sure if not found yields an error)?
 	if rt == nil {
-		r.LogCtx.Debugf("rt not found: %s.%s", glooplatformConfig.RouteTableNamespace, glooplatformConfig.RouteTableName)
-		return pluginTypes.RpcError{}
+		return pluginTypes.RpcError{
+			ErrorString: fmt.Sprintf("rt not found: %s.%s", glooplatformConfig.RouteTableNamespace, glooplatformConfig.RouteTableName),
+		}
 	}
 
 	r.LogCtx.Debugf("found RT %s", rt.Name)
@@ -136,7 +179,7 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 
 	r.LogCtx.Debugf("attempting to set stable=%d, canary=%d", stableDest.Weight, canaryDest.Weight)
 
-	if r.MockRouteTable == nil {
+	if !r.IsTest {
 		err = r.Client.RouteTables().UpdateRouteTable(ctx, rt, &k8sclient.UpdateOptions{})
 		if err != nil {
 			r.LogCtx.Error(err.Error())
@@ -179,6 +222,10 @@ func getPluginConfig(rollout *v1alpha1.Rollout) (*GlooPlatformAPITrafficRouting,
 	}
 
 	return &glooplatformConfig, nil
+}
+
+func (r *RpcPlugin) handleFoo() {
+
 }
 
 func (r *RpcPlugin) getRouteTable(ctx context.Context, trafficConfig *GlooPlatformAPITrafficRouting) (*networkv2.RouteTable, error) {
