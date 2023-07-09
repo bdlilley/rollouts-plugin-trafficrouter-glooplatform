@@ -116,6 +116,8 @@ Regardless of which APIs Gloo does/will support, there will always be a Gloo plu
 
 ### TODO
 
+- use github.com/solo-io/solo-apis/client-go/common.gloo.solo.io/v2 ObjectSelector for RouteTable selector to support filter by workspace (currently supports name/namespace/label selector)
+  - replace DumbObjectSelector; maybe there is already a k8s type to use for that
 - set up unit tests; ./pkg/plugin/plugin_test.txt and ./pkg/mocks/plugin.go have a partial setup copied from the gatewayAPI plugin
 - support different forwardTo.destination.kinds (might be transparent, at least need to test)
 - account for a matched destination already having "static" (non-canary) weighted routing

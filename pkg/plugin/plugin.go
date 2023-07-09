@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
@@ -17,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 	solov2 "github.com/solo-io/solo-apis/client-go/common.gloo.solo.io/v2"
 	networkv2 "github.com/solo-io/solo-apis/client-go/networking.gloo.solo.io/v2"
+	"k8s.io/apimachinery/pkg/labels"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -35,10 +37,30 @@ type RpcPlugin struct {
 }
 
 type GlooPlatformAPITrafficRouting struct {
-	RouteTableName       string `json:"routeTableName" protobuf:"bytes,1,name=routeTableName"`
-	RouteTableNamespace  string `json:"routeTableNamespace" protobuf:"bytes,2,name=routeTableNamespace"`
-	DestinationKind      string `json:"destinationKind" protobuf:"bytes,2,name=destinationKind"`
-	DestinationNamespace string `json:"destinationNamespace" protobuf:"bytes,2,name=destinationNamespace"`
+	RouteTableSelector *DumbObjectSelector     `json:"routeTableSelector" protobuf:"bytes,1,name=routeTableSelector"`
+	DestinationMatcher *GlooDestinationMatcher `json:"destinationMatcher" protobuf:"bytes,2,name=destinationMatcher"`
+	// RouteTableName       string `json:"routeTableName" protobuf:"bytes,1,name=routeTableName"`
+	// RouteTableNamespace  string `json:"routeTableNamespace" protobuf:"bytes,2,name=routeTableNamespace"`
+	// DestinationKind      string `json:"destinationKind" protobuf:"bytes,2,name=destinationKind"`
+	// DestinationNamespace string `json:"destinationNamespace" protobuf:"bytes,2,name=destinationNamespace"`
+}
+
+type DumbObjectSelector struct {
+	Labels    map[string]string `json:"labels" protobuf:"bytes,1,name=labels"`
+	Name      string            `json:"name" protobuf:"bytes,2,name=name"`
+	Namespace string            `json:"namespace" protobuf:"bytes,3,name=namespace"`
+}
+
+type GlooDestinationMatcher struct {
+	Regexp *GlooDestinationMatcherRegexp
+	Ref    *solov2.ObjectReference
+}
+
+type GlooDestinationMatcherRegexp struct {
+	NameRegexp      *regexp.Regexp
+	NamespaceRegexp *regexp.Regexp
+	KindRegexp      *regexp.Regexp
+	ClusterRegexp   *regexp.Regexp
 }
 
 type GlooMatchedRouteTable struct {
@@ -52,32 +74,37 @@ type GlooMatchedRouteTable struct {
 	TLSRoutes []*GlooMatchedTLSRoutes
 }
 
+type GlooDestinations struct {
+	StableOrActiveDestination  *solov2.DestinationReference
+	CanaryOrPreviewDestination *solov2.DestinationReference
+}
+
 type GlooMatchedHttpRoutes struct {
 	// matched HttpRoute
 	HttpRoute *networkv2.HTTPRoute
 	// matched destinations within the httpRoute
-	Destinations []*solov2.DestinationReference
+	Destinations []*GlooDestinations
 }
 
 type GlooMatchedTLSRoutes struct {
 	// matched HttpRoute
 	TLSRoute *networkv2.TLSRoute
 	// matched destinations within the httpRoute
-	Destinations []*solov2.DestinationReference
+	Destinations []*GlooDestinations
 }
 
 type GlooMatchedTCPRoutes struct {
 	// matched HttpRoute
 	TCPRoute *networkv2.TCPRoute
 	// matched destinations within the httpRoute
-	Destinations []*solov2.DestinationReference
+	Destinations []*GlooDestinations
 }
 
-func (g *GlooPlatformAPITrafficRouting) matchesObjectRef(ref *solov2.ObjectReference, serviceName string) bool {
-	return ref != nil &&
-		strings.EqualFold(ref.Namespace, g.DestinationNamespace) &&
-		strings.EqualFold(ref.Name, serviceName)
-}
+// func (g *GlooPlatformAPITrafficRouting) matchesObjectRef(ref *solov2.ObjectReference, serviceName string) bool {
+// 	return ref != nil &&
+// 		strings.EqualFold(ref.Namespace, g.DestinationNamespace) &&
+// 		strings.EqualFold(ref.Name, serviceName)
+// }
 
 func (r *RpcPlugin) InitPlugin() pluginTypes.RpcError {
 	if r.IsTest {
@@ -101,57 +128,69 @@ func (r *RpcPlugin) UpdateHash(rollout *v1alpha1.Rollout, canaryHash, stableHash
 
 func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, additionalDestinations []v1alpha1.WeightDestination) pluginTypes.RpcError {
 	ctx := context.TODO()
-	glooplatformConfig, err := getPluginConfig(rollout)
+	glooPluginConfig, err := getPluginConfig(rollout)
 	if err != nil {
 		return pluginTypes.RpcError{
 			ErrorString: err.Error(),
 		}
 	}
 
-	// TODO get matching RTs, routes, and destinations
-	var rts []*GlooMatchedRouteTable
+	// first get the matched routetables
+	matchedRts, err := r.getRouteTables(ctx, glooPluginConfig)
+	if err != nil {
+		return pluginTypes.RpcError{
+			ErrorString: err.Error(),
+		}
+	}
+
+	return pluginTypes.RpcError{
+		ErrorString: fmt.Sprintf("%d matched rts; plugin not implemented", len(matchedRts)),
+	}
+
+	// TODO get the matched routes and destinations from each selected routeTable
 
 	if rollout.Spec.Strategy.Canary != nil {
-		return r.handleCanary(rollout, rts)
+		return r.handleCanary(ctx, rollout, desiredWeight, additionalDestinations, glooPluginConfig, matchedRts)
 	} else if rollout.Spec.Strategy.BlueGreen != nil {
 		return r.handleBlueGreen(rollout)
 	}
 
 	var rt *networkv2.RouteTable
 
-	if !r.IsTest {
-		rt, err = r.getRouteTable(ctx, glooplatformConfig)
-		if err != nil {
-			return pluginTypes.RpcError{
-				ErrorString: err.Error(),
-			}
-		}
-	} else if r.TestRouteTable != nil {
-		rt = r.TestRouteTable
-	}
+	// if !r.IsTest {
+	// 	rt, err = r.getRouteTable(ctx, glooplatformConfig)
+	// 	if err != nil {
+	// 		return pluginTypes.RpcError{
+	// 			ErrorString: err.Error(),
+	// 		}
+	// 	}
+	// } else if r.TestRouteTable != nil {
+	// 	rt = r.TestRouteTable
+	// }
 
-	// do we need this (not sure if not found yields an error)?
-	if rt == nil {
-		return pluginTypes.RpcError{
-			ErrorString: fmt.Sprintf("rt not found: %s.%s", glooplatformConfig.RouteTableNamespace, glooplatformConfig.RouteTableName),
-		}
-	}
+	// // do we need this (not sure if not found yields an error)?
+	// if rt == nil {
+	// 	return pluginTypes.RpcError{
+	// 		ErrorString: fmt.Sprintf("rt not found: %s.%s", glooplatformConfig.RouteTableNamespace, glooplatformConfig.RouteTableName),
+	// 	}
+	// }
 
-	r.LogCtx.Debugf("found RT %s", rt.Name)
+	// r.LogCtx.Debugf("found RT %s", rt.Name)
 
 	// get the stable destination
-	httpRoute, stableDest, canaryDest, err := getHttpRefs(rollout.Spec.Strategy.Canary.StableService, rollout.Spec.Strategy.Canary.CanaryService, glooplatformConfig, rt)
+	httpRoute, stableDest, canaryDest, err := getHttpRefs(rollout.Spec.Strategy.Canary.StableService, rollout.Spec.Strategy.Canary.CanaryService, glooPluginConfig, rt)
 	if err != nil {
 		return pluginTypes.RpcError{
 			ErrorString: err.Error(),
 		}
 	}
 
-	if stableDest == nil {
-		return pluginTypes.RpcError{
-			ErrorString: fmt.Sprintf("failed to find RT %s.%s", glooplatformConfig.RouteTableNamespace, glooplatformConfig.RouteTableName),
-		}
-	}
+	// if stableDest == nil {
+	// 	return pluginTypes.RpcError{
+	// 		ErrorString: fmt.Sprintf("failed to find RT %s.%s", glooplatformConfig.RouteTableNamespace, glooplatformConfig.RouteTableName),
+	// 	}
+	// }
+
 	remainingWeight := 100 - desiredWeight
 	stableDest.Weight = uint32(remainingWeight)
 
@@ -180,6 +219,7 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 	r.LogCtx.Debugf("attempting to set stable=%d, canary=%d", stableDest.Weight, canaryDest.Weight)
 
 	if !r.IsTest {
+		// bad .. needs to be a patch
 		err = r.Client.RouteTables().UpdateRouteTable(ctx, rt, &k8sclient.UpdateOptions{})
 		if err != nil {
 			r.LogCtx.Error(err.Error())
@@ -224,35 +264,67 @@ func getPluginConfig(rollout *v1alpha1.Rollout) (*GlooPlatformAPITrafficRouting,
 	return &glooplatformConfig, nil
 }
 
-func (r *RpcPlugin) handleFoo() {
+func (r *RpcPlugin) getRouteTables(ctx context.Context, glooPluginConfig *GlooPlatformAPITrafficRouting) ([]*GlooMatchedRouteTable, error) {
+	if !strings.EqualFold(glooPluginConfig.RouteTableSelector.Name, "") {
+		r.LogCtx.Debugf("getRouteTables using ns:name ref %s:%s to get single table", glooPluginConfig.RouteTableSelector.Name, glooPluginConfig.RouteTableSelector.Namespace)
+		result, err := r.Client.RouteTables().GetRouteTable(ctx, k8sclient.ObjectKey{Name: glooPluginConfig.RouteTableSelector.Name, Namespace: glooPluginConfig.RouteTableSelector.Namespace})
+		if err != nil {
+			return nil, err
+		}
+		r.LogCtx.Debugf("getRouteTables using ns:name ref %s:%s found 1 table", glooPluginConfig.RouteTableSelector.Name, glooPluginConfig.RouteTableSelector.Namespace)
+		return []*GlooMatchedRouteTable{
+			{
+				RouteTable: result,
+			},
+		}, nil
+	}
 
-}
+	matched := []*GlooMatchedRouteTable{}
 
-func (r *RpcPlugin) getRouteTable(ctx context.Context, trafficConfig *GlooPlatformAPITrafficRouting) (*networkv2.RouteTable, error) {
-	return r.Client.RouteTables().GetRouteTable(ctx, k8sclient.ObjectKey{
-		Namespace: trafficConfig.RouteTableNamespace,
-		Name:      trafficConfig.RouteTableName,
-	})
+	opts := &k8sclient.ListOptions{}
+
+	if glooPluginConfig.RouteTableSelector.Labels != nil {
+		opts.LabelSelector = labels.SelectorFromSet(glooPluginConfig.RouteTableSelector.Labels)
+	}
+	if !strings.EqualFold(glooPluginConfig.RouteTableSelector.Namespace, "") {
+		opts.Namespace = glooPluginConfig.RouteTableSelector.Namespace
+	}
+
+	r.LogCtx.Debugf("getRouteTables listing tables with opts %+v", opts)
+	rts, err := r.Client.RouteTables().ListRouteTable(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	r.LogCtx.Debugf("getRouteTables listing tables with opts %+v; found %d routeTables", opts, len(rts.Items))
+	for _, rt := range rts.Items {
+		matchedRt := &GlooMatchedRouteTable{
+			RouteTable: &rt,
+		}
+		matched = append(matched, matchedRt)
+	}
+
+	return matched, nil
 }
 
 func getHttpRefs(stableServiceName string, canaryServiceName string, trafficConfig *GlooPlatformAPITrafficRouting, rt *networkv2.RouteTable) (route *networkv2.HTTPRoute, stable *solov2.DestinationReference, canary *solov2.DestinationReference, err error) {
 	for _, httpRoute := range rt.Spec.Http {
 		fw := httpRoute.GetForwardTo()
 		if fw != nil {
-			for _, dest := range fw.Destinations {
-				if strings.EqualFold(dest.Kind.String(), trafficConfig.DestinationKind) {
-					ref := dest.GetRef()
-					if trafficConfig.matchesObjectRef(ref, stableServiceName) {
-						route = httpRoute
-						stable = dest
-						continue
-					}
-					if trafficConfig.matchesObjectRef(ref, canaryServiceName) {
-						canary = dest
-						continue
-					}
-				}
-			}
+			// for _, _ := range fw.Destinations {
+			// 	// if strings.EqualFold(dest.Kind.String(), trafficConfig.DestinationKind) {
+			// 	// 	ref := dest.GetRef()
+			// 	// 	if trafficConfig.matchesObjectRef(ref, stableServiceName) {
+			// 	// 		route = httpRoute
+			// 	// 		stable = dest
+			// 	// 		continue
+			// 	// 	}
+			// 	// 	if trafficConfig.matchesObjectRef(ref, canaryServiceName) {
+			// 	// 		canary = dest
+			// 	// 		continue
+			// 	// 	}
+			// 	// }
+			// }
 		}
 		// if the stable ref is found, return whether or not the dest was found;
 		// if the dest doesn't exist yet it will get created
