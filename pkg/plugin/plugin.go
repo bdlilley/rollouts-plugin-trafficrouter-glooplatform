@@ -172,6 +172,10 @@ func getPluginConfig(rollout *v1alpha1.Rollout) (*GlooPlatformAPITrafficRouting,
 }
 
 func (r *RpcPlugin) getRouteTables(ctx context.Context, rollout *v1alpha1.Rollout, glooPluginConfig *GlooPlatformAPITrafficRouting) ([]*GlooMatchedRouteTable, error) {
+	if glooPluginConfig.RouteTableSelector == nil {
+		return nil, fmt.Errorf("routeTable selector is required")
+	}
+
 	if !strings.EqualFold(glooPluginConfig.RouteTableSelector.Name, "") {
 		r.LogCtx.Debugf("getRouteTables using ns:name ref %s:%s to get single table", glooPluginConfig.RouteTableSelector.Name, glooPluginConfig.RouteTableSelector.Namespace)
 		result, err := r.Client.RouteTables().GetRouteTable(ctx, k8sclient.ObjectKey{Name: glooPluginConfig.RouteTableSelector.Name, Namespace: glooPluginConfig.RouteTableSelector.Namespace})
