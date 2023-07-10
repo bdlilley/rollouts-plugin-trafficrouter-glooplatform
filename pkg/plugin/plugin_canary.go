@@ -17,6 +17,7 @@ func (r *RpcPlugin) handleCanary(ctx context.Context, rollout *v1alpha1.Rollout,
 	remainingWeight := 100 - desiredWeight
 
 	for _, rt := range glooMatchedRouteTables {
+		// the original rt is preserved to use for patch generation
 		ogRt := &networkv2.RouteTable{}
 		rt.RouteTable.DeepCopyInto(ogRt)
 
