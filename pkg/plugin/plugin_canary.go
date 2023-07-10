@@ -17,15 +17,15 @@ func (r *RpcPlugin) handleCanary(ctx context.Context, rollout *v1alpha1.Rollout,
 
 	for _, rt := range glooMatchedRouteTables {
 		for _, matchedHttpRoute := range rt.HttpRoutes {
-			for _, dest := range matchedHttpRoute.Destinations {
-				dest.StableOrActiveDestination.Weight = uint32(remainingWeight)
+			if matchedHttpRoute.Destinations != nil {
+				matchedHttpRoute.Destinations.StableOrActiveDestination.Weight = uint32(remainingWeight)
 
-				if dest.CanaryOrPreviewDestination == nil {
-					dest.CanaryOrPreviewDestination = r.newCanaryDest()
-					matchedHttpRoute.HttpRoute.GetForwardTo().Destinations = append(matchedHttpRoute.HttpRoute.GetForwardTo().Destinations, dest.CanaryOrPreviewDestination)
+				if matchedHttpRoute.Destinations.CanaryOrPreviewDestination == nil {
+					matchedHttpRoute.Destinations.CanaryOrPreviewDestination = r.newCanaryDest()
+					matchedHttpRoute.HttpRoute.GetForwardTo().Destinations = append(matchedHttpRoute.HttpRoute.GetForwardTo().Destinations, matchedHttpRoute.Destinations.CanaryOrPreviewDestination)
 				}
 
-				dest.CanaryOrPreviewDestination.Weight = uint32(desiredWeight)
+				matchedHttpRoute.Destinations.CanaryOrPreviewDestination.Weight = uint32(desiredWeight)
 			}
 		}
 

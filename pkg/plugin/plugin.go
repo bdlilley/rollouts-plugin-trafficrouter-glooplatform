@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
@@ -37,8 +36,9 @@ type RpcPlugin struct {
 }
 
 type GlooPlatformAPITrafficRouting struct {
-	RouteTableSelector *DumbObjectSelector     `json:"routeTableSelector" protobuf:"bytes,1,name=routeTableSelector"`
-	DestinationMatcher *GlooDestinationMatcher `json:"destinationMatcher" protobuf:"bytes,2,name=destinationMatcher"`
+	RouteTableSelector *DumbObjectSelector `json:"routeTableSelector" protobuf:"bytes,1,name=routeTableSelector"`
+	RouteSelector      *DumbRouteSelector  `json:"routeSelector" protobuf:"bytes,2,name=routeSelector"`
+	// DestinationMatcher *GlooDestinationMatcher `json:"destinationMatcher" protobuf:"bytes,3,name=destinationMatcher"`
 	// RouteTableName       string `json:"routeTableName" protobuf:"bytes,1,name=routeTableName"`
 	// RouteTableNamespace  string `json:"routeTableNamespace" protobuf:"bytes,2,name=routeTableNamespace"`
 	// DestinationKind      string `json:"destinationKind" protobuf:"bytes,2,name=destinationKind"`
@@ -51,17 +51,22 @@ type DumbObjectSelector struct {
 	Namespace string            `json:"namespace" protobuf:"bytes,3,name=namespace"`
 }
 
-type GlooDestinationMatcher struct {
-	Regexp *GlooDestinationMatcherRegexp `json:"regexp" protobuf:"bytes,1,name=regexp"`
-	Ref    *solov2.ObjectReference       `json:"ref" protobuf:"bytes,2,name=ref"`
+type DumbRouteSelector struct {
+	Labels map[string]string `json:"labels" protobuf:"bytes,1,name=labels"`
+	Name   string            `json:"name" protobuf:"bytes,2,name=name"`
 }
 
-type GlooDestinationMatcherRegexp struct {
-	NameRegexp      *regexp.Regexp `json:"nameRegexp" protobuf:"bytes,1,name=nameRegexp"`
-	NamespaceRegexp *regexp.Regexp `json:"namespaceRegexp" protobuf:"bytes,2,name=namespaceRegexp"`
-	KindRegexp      *regexp.Regexp `json:"kindRegexp" protobuf:"bytes,3,name=kindRegexp"`
-	ClusterRegexp   *regexp.Regexp `json:"clusterRegexp" protobuf:"bytes,4,name=clusterRegexp"`
+type GlooDestinationMatcher struct {
+	// Regexp *GlooDestinationMatcherRegexp `json:"regexp" protobuf:"bytes,1,name=regexp"`
+	Ref *solov2.ObjectReference `json:"ref" protobuf:"bytes,2,name=ref"`
 }
+
+// type GlooDestinationMatcherRegexp struct {
+// 	NameRegexp      *regexp.Regexp `json:"nameRegexp" protobuf:"bytes,1,name=nameRegexp"`
+// 	NamespaceRegexp *regexp.Regexp `json:"namespaceRegexp" protobuf:"bytes,2,name=namespaceRegexp"`
+// 	KindRegexp      *regexp.Regexp `json:"kindRegexp" protobuf:"bytes,3,name=kindRegexp"`
+// 	ClusterRegexp   *regexp.Regexp `json:"clusterRegexp" protobuf:"bytes,4,name=clusterRegexp"`
+// }
 
 type GlooMatchedRouteTable struct {
 	// matched gloo platform route table
@@ -83,7 +88,7 @@ type GlooMatchedHttpRoutes struct {
 	// matched HttpRoute
 	HttpRoute *networkv2.HTTPRoute
 	// matched destinations within the httpRoute
-	Destinations []*GlooDestinations
+	Destinations *GlooDestinations
 }
 
 type GlooMatchedTLSRoutes struct {
@@ -105,6 +110,82 @@ type GlooMatchedTCPRoutes struct {
 // 		strings.EqualFold(ref.Namespace, g.DestinationNamespace) &&
 // 		strings.EqualFold(ref.Name, serviceName)
 // }
+
+func (g *GlooMatchedRouteTable) matchRoutes(logCtx *logrus.Entry, rollout *v1alpha1.Rollout, trafficConfig *GlooPlatformAPITrafficRouting) error {
+	if g.RouteTable == nil {
+		return fmt.Errorf("matchRoutes called for nil RouteTable")
+	}
+
+	// HTTP Routes
+	for _, httpRoute := range g.RouteTable.Spec.Http {
+		// find the destination that matches the stable svc
+		fw := httpRoute.GetForwardTo()
+		if fw == nil {
+			logCtx.Debugf("skipping route %s.%s becuase forwardTo is nil", g.RouteTable.Name, httpRoute.Name)
+			continue
+		}
+
+		// skip non-matching routes if RouteSelector provided
+		if trafficConfig.RouteSelector != nil {
+			// if name was provided, skip if route name doesn't match
+			if !strings.EqualFold(trafficConfig.RouteSelector.Name, "") && !strings.EqualFold(trafficConfig.RouteSelector.Name, httpRoute.Name) {
+				logCtx.Debugf("skipping route %s.%s because it doesn't match route name selector %s", g.RouteTable.Name, httpRoute.Name, trafficConfig.RouteSelector.Name)
+				continue
+			}
+			// if labels provided, skip if route labels do not contain all specified labels
+			if trafficConfig.RouteSelector.Labels != nil {
+				for k, v := range trafficConfig.RouteSelector.Labels {
+					if vv, ok := httpRoute.Labels[k]; ok {
+						if !strings.EqualFold(v, vv) {
+							logCtx.Debugf("skipping route %s.%s because route labels do not contain %s=%s", g.RouteTable.Name, httpRoute.Name, k, vv)
+							continue
+						}
+					}
+				}
+			}
+			logCtx.Debugf("route %s.%s passed RouteSelector", g.RouteTable.Name, httpRoute.Name)
+		}
+
+		// find destinations
+		// var matchedDestinations []*GlooDestinations
+		var canary, stable *solov2.DestinationReference
+		for _, dest := range fw.Destinations {
+			ref := dest.GetRef()
+			if ref == nil {
+				logCtx.Debugf("skipping destination %s.%s because destination ref was nil; %+v", g.RouteTable.Name, httpRoute.Name, dest)
+				continue
+			}
+			if strings.EqualFold(ref.Name, rollout.Spec.Strategy.Canary.StableService) {
+				logCtx.Debugf("matched stable ref %s.%s.%s", g.RouteTable.Name, httpRoute.Name, ref.Name)
+				stable = dest
+				continue
+			}
+			if strings.EqualFold(ref.Name, rollout.Spec.Strategy.Canary.CanaryService) {
+				logCtx.Debugf("matched canary ref %s.%s.%s", g.RouteTable.Name, httpRoute.Name, ref.Name)
+				canary = dest
+				// bail if we found both stable and canary
+				if stable != nil {
+					break
+				}
+				continue
+			}
+		}
+
+		if stable != nil {
+			dest := &GlooMatchedHttpRoutes{
+				HttpRoute: httpRoute,
+				Destinations: &GlooDestinations{
+					StableOrActiveDestination:  stable,
+					CanaryOrPreviewDestination: canary,
+				},
+			}
+			logCtx.Debugf("adding destination %+v", dest)
+			g.HttpRoutes = append(g.HttpRoutes, dest)
+		}
+	} // end range httpRoutes
+
+	return nil
+}
 
 func (r *RpcPlugin) InitPlugin() pluginTypes.RpcError {
 	if r.IsTest {
@@ -135,7 +216,7 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 		}
 	}
 
-	// first get the matched routetables
+	// get the matched routetables
 	matchedRts, err := r.getRouteTables(ctx, glooPluginConfig)
 	if err != nil {
 		return pluginTypes.RpcError{
@@ -155,7 +236,7 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 		return r.handleBlueGreen(rollout)
 	}
 
-	var rt *networkv2.RouteTable
+	// var rt *networkv2.RouteTable
 
 	// if !r.IsTest {
 	// 	rt, err = r.getRouteTable(ctx, glooplatformConfig)
@@ -177,57 +258,57 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 
 	// r.LogCtx.Debugf("found RT %s", rt.Name)
 
-	// get the stable destination
-	httpRoute, stableDest, canaryDest, err := getHttpRefs(rollout.Spec.Strategy.Canary.StableService, rollout.Spec.Strategy.Canary.CanaryService, glooPluginConfig, rt)
-	if err != nil {
-		return pluginTypes.RpcError{
-			ErrorString: err.Error(),
-		}
-	}
+	// // get the stable destination
+	// httpRoute, stableDest, canaryDest, err := getHttpRefs(rollout.Spec.Strategy.Canary.StableService, rollout.Spec.Strategy.Canary.CanaryService, glooPluginConfig, rt)
+	// if err != nil {
+	// 	return pluginTypes.RpcError{
+	// 		ErrorString: err.Error(),
+	// 	}
+	// }
 
 	// if stableDest == nil {
 	// 	return pluginTypes.RpcError{
 	// 		ErrorString: fmt.Sprintf("failed to find RT %s.%s", glooplatformConfig.RouteTableNamespace, glooplatformConfig.RouteTableName),
 	// 	}
+	// // }
+
+	// remainingWeight := 100 - desiredWeight
+	// stableDest.Weight = uint32(remainingWeight)
+
+	// // if this is first step, the canary route may need to be created
+	// if canaryDest == nil {
+	// 	// {"RefKind":{"Ref":{"name":"httpbin","namespace":"httpbin"}},"port":{"Specifier":{"Number":8000}},"weight":100}
+	// 	canaryDest = &solov2.DestinationReference{
+	// 		Kind: stableDest.Kind,
+	// 		Port: &solov2.PortSelector{
+	// 			Specifier: &solov2.PortSelector_Number{
+	// 				Number: stableDest.Port.GetNumber(),
+	// 			},
+	// 		},
+	// 		RefKind: &solov2.DestinationReference_Ref{
+	// 			Ref: &solov2.ObjectReference{
+	// 				Name:      rollout.Spec.Strategy.Canary.CanaryService,
+	// 				Namespace: stableDest.GetRef().Namespace,
+	// 			},
+	// 		},
+	// 	}
+	// 	httpRoute.GetForwardTo().Destinations = append(httpRoute.GetForwardTo().Destinations, canaryDest)
 	// }
 
-	remainingWeight := 100 - desiredWeight
-	stableDest.Weight = uint32(remainingWeight)
+	// canaryDest.Weight = uint32(desiredWeight)
 
-	// if this is first step, the canary route may need to be created
-	if canaryDest == nil {
-		// {"RefKind":{"Ref":{"name":"httpbin","namespace":"httpbin"}},"port":{"Specifier":{"Number":8000}},"weight":100}
-		canaryDest = &solov2.DestinationReference{
-			Kind: stableDest.Kind,
-			Port: &solov2.PortSelector{
-				Specifier: &solov2.PortSelector_Number{
-					Number: stableDest.Port.GetNumber(),
-				},
-			},
-			RefKind: &solov2.DestinationReference_Ref{
-				Ref: &solov2.ObjectReference{
-					Name:      rollout.Spec.Strategy.Canary.CanaryService,
-					Namespace: stableDest.GetRef().Namespace,
-				},
-			},
-		}
-		httpRoute.GetForwardTo().Destinations = append(httpRoute.GetForwardTo().Destinations, canaryDest)
-	}
+	// r.LogCtx.Debugf("attempting to set stable=%d, canary=%d", stableDest.Weight, canaryDest.Weight)
 
-	canaryDest.Weight = uint32(desiredWeight)
-
-	r.LogCtx.Debugf("attempting to set stable=%d, canary=%d", stableDest.Weight, canaryDest.Weight)
-
-	if !r.IsTest {
-		// bad .. needs to be a patch
-		err = r.Client.RouteTables().UpdateRouteTable(ctx, rt, &k8sclient.UpdateOptions{})
-		if err != nil {
-			r.LogCtx.Error(err.Error())
-			return pluginTypes.RpcError{
-				ErrorString: err.Error(),
-			}
-		}
-	}
+	// if !r.IsTest {
+	// 	// bad .. needs to be a patch
+	// 	err = r.Client.RouteTables().UpdateRouteTable(ctx, rt, &k8sclient.UpdateOptions{})
+	// 	if err != nil {
+	// 		r.LogCtx.Error(err.Error())
+	// 		return pluginTypes.RpcError{
+	// 			ErrorString: err.Error(),
+	// 		}
+	// 	}
+	// }
 
 	return pluginTypes.RpcError{}
 }
@@ -301,43 +382,56 @@ func (r *RpcPlugin) getRouteTables(ctx context.Context, glooPluginConfig *GlooPl
 		matchedRt := &GlooMatchedRouteTable{
 			RouteTable: &rt,
 		}
+		// destination matching
+		if err := matchedRt.matchRoutes(r.LogCtx, rollout, glooPluginConfig); err != nil {
+			return nil, err
+		}
+
 		matched = append(matched, matchedRt)
 	}
 
 	return matched, nil
 }
 
-func getHttpRefs(stableServiceName string, canaryServiceName string, trafficConfig *GlooPlatformAPITrafficRouting, rt *networkv2.RouteTable) (route *networkv2.HTTPRoute, stable *solov2.DestinationReference, canary *solov2.DestinationReference, err error) {
-	for _, httpRoute := range rt.Spec.Http {
-		fw := httpRoute.GetForwardTo()
-		if fw != nil {
-			// for _, _ := range fw.Destinations {
-			// 	// if strings.EqualFold(dest.Kind.String(), trafficConfig.DestinationKind) {
-			// 	// 	ref := dest.GetRef()
-			// 	// 	if trafficConfig.matchesObjectRef(ref, stableServiceName) {
-			// 	// 		route = httpRoute
-			// 	// 		stable = dest
-			// 	// 		continue
-			// 	// 	}
-			// 	// 	if trafficConfig.matchesObjectRef(ref, canaryServiceName) {
-			// 	// 		canary = dest
-			// 	// 		continue
-			// 	// 	}
-			// 	// }
-			// }
-		}
-		// if the stable ref is found, return whether or not the dest was found;
-		// if the dest doesn't exist yet it will get created
-		if stable != nil {
-			return
-		}
-	} // end http route loop
+// func getMatchedDestinations(stableServiceName string, canaryServiceName string, trafficConfig *GlooPlatformAPITrafficRouting, rt *networkv2.RouteTable) (route *networkv2.HTTPRoute, stable *solov2.DestinationReference, canary *solov2.DestinationReference, err error) {
+// 	var httpRoutes []*networkv2.HTTPRoute
 
-	if route == nil {
-		err = fmt.Errorf("failed to find an http route that references stable service %s in RouteTable %s.%s", stableServiceName, rt.Namespace, rt.Name)
-		return
-	}
+// 	if trafficConfig.RouteSelector != nil {
 
-	err = fmt.Errorf("failed to find a destination that references stable service %s in RouteTable %s.%s in http route %s", stableServiceName, rt.Namespace, rt.Name, route.Name)
-	return
-}
+// 	}
+
+// 	for _, httpRoute := range rt.Spec.Http {
+// 		fw := httpRoute.GetForwardTo()
+
+// 		}
+// 		// if the stable ref is found, return whether or not the dest was found;
+// 		// if the dest doesn't exist yet it will get created
+// 		if stable != nil {
+// 			return
+// 		}
+// 	} // end http route loop
+
+// 			// if fw != nil {
+// 		// 	for _, dest := range fw.Destinations {
+// 		// 		if strings.EqualFold(dest.Kind.String(), trafficConfig.DestinationKind) {
+// 		// 			ref := dest.GetRef()
+// 		// 			if trafficConfig.matchesObjectRef(ref, stableServiceName) {
+// 		// 				route = httpRoute
+// 		// 				stable = dest
+// 		// 				continue
+// 		// 			}
+// 		// 			if trafficConfig.matchesObjectRef(ref, canaryServiceName) {
+// 		// 				canary = dest
+// 		// 				continue
+// 		// 			}
+// 		// 		}
+// 		// 	}
+
+// 	// if route == nil {
+// 	// 	err = fmt.Errorf("failed to find an http route that references stable service %s in RouteTable %s.%s", stableServiceName, rt.Namespace, rt.Name)
+// 	// 	return
+// 	// // }
+
+// 	// err = fmt.Errorf("failed to find a destination that references stable service %s in RouteTable %s.%s in http route %s", stableServiceName, rt.Namespace, rt.Name, route.Name)
+// 	// return
+// }

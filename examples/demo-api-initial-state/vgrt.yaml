@@ -53,4 +53,19 @@ spec:
         port:
           number: 8080
         kind: SERVICE
+  - name: demo-preview
+    matchers:
+      - uri:
+          prefix: /preview
+    labels:
+      route: demo-preview
+    forwardTo:
+      pathRewrite: /
+      destinations:
+      - ref:
+          name: stable
+          namespace: gloo-rollout-demo
+        port:
+          number: 8080
+        kind: SERVICE
 
