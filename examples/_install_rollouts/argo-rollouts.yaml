@@ -15133,7 +15133,7 @@ spec:
         app.kubernetes.io/name: argo-rollouts
     spec:
       containers:
-      - image: kodacd/argo-rollouts:ben
+      - image: kodacd/argo-rollouts:latest
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 3
