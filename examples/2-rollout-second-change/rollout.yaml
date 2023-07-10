@@ -32,6 +32,7 @@ spec:
             routeTableSelector:
               labels:
                 app: demo
+              namespace: gloo-mesh
               # name: rt-name
               # namespace: rt-namespace
             routeSelector:

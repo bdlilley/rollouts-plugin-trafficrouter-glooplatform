@@ -6,10 +6,8 @@ import (
 
 	"github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
 	pluginTypes "github.com/argoproj/argo-rollouts/utils/plugin/types"
-	"github.com/bensolo-io/rollouts-plugin-trafficrouter-glooplatform/pkg/gloo"
 	solov2 "github.com/solo-io/solo-apis/client-go/common.gloo.solo.io/v2"
 	networkv2 "github.com/solo-io/solo-apis/client-go/networking.gloo.solo.io/v2"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -21,6 +19,7 @@ func (r *RpcPlugin) handleCanary(ctx context.Context, rollout *v1alpha1.Rollout,
 		ogRt := &networkv2.RouteTable{}
 		rt.RouteTable.DeepCopyInto(ogRt)
 
+		// set stable and canary (create canary destination if required)
 		for _, matchedHttpRoute := range rt.HttpRoutes {
 			if matchedHttpRoute.Destinations != nil {
 				matchedHttpRoute.Destinations.StableOrActiveDestination.Weight = uint32(remainingWeight)
@@ -40,26 +39,14 @@ func (r *RpcPlugin) handleCanary(ctx context.Context, rollout *v1alpha1.Rollout,
 			}
 		}
 
-		// build patches
-
-		patch, modified, err := gloo.BuildRouteTablePatch(ogRt, rt.RouteTable, gloo.WithAnnotations(), gloo.WithLabels(), gloo.WithSpec())
-		if err != nil {
-			return pluginTypes.RpcError{ErrorString: err.Error()}
-		}
-
-		if !modified {
-			r.LogCtx.Debugf("not udpating rt %s.%s because patch would not modify it", rt.RouteTable.Namespace, rt.RouteTable.Name)
-			return pluginTypes.RpcError{}
-		}
-
-		clientPatch := client.RawPatch(types.StrategicMergePatchType, patch)
-
+		// patch the RT
 		if !r.IsTest {
-			if err := r.Client.RouteTables().PatchRouteTable(ctx, rt.RouteTable, clientPatch); err != nil {
+			if err := r.Client.RouteTables().PatchRouteTable(ctx, rt.RouteTable, client.MergeFrom(ogRt)); err != nil {
 				return pluginTypes.RpcError{
 					ErrorString: fmt.Sprintf("failed to patch RouteTable: %s", err),
 				}
 			}
+			r.LogCtx.Debugf("patched route table %s.%s", rt.RouteTable.Namespace, rt.RouteTable.Name)
 		}
 	}
 
