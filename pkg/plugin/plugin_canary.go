@@ -7,8 +7,8 @@ import (
 	"github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
 	pluginTypes "github.com/argoproj/argo-rollouts/utils/plugin/types"
 	"github.com/bensolo-io/rollouts-plugin-trafficrouter-glooplatform/pkg/gloo"
-	"github.com/jinzhu/copier"
 	solov2 "github.com/solo-io/solo-apis/client-go/common.gloo.solo.io/v2"
+	networkv2 "github.com/solo-io/solo-apis/client-go/networking.gloo.solo.io/v2"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -17,6 +17,9 @@ func (r *RpcPlugin) handleCanary(ctx context.Context, rollout *v1alpha1.Rollout,
 	remainingWeight := 100 - desiredWeight
 
 	for _, rt := range glooMatchedRouteTables {
+		ogRt := &networkv2.RouteTable{}
+		rt.RouteTable.DeepCopyInto(ogRt)
+
 		for _, matchedHttpRoute := range rt.HttpRoutes {
 			if matchedHttpRoute.Destinations != nil {
 				matchedHttpRoute.Destinations.StableOrActiveDestination.Weight = uint32(remainingWeight)
@@ -37,16 +40,10 @@ func (r *RpcPlugin) handleCanary(ctx context.Context, rollout *v1alpha1.Rollout,
 		}
 
 		// build patches
-		desiredRt := rt
 
-		patch, modified, err := gloo.BuildRouteTablePatch(rt.RouteTable, desiredRt.RouteTable, gloo.WithAnnotations(), gloo.WithLabels(), gloo.WithSpec())
+		patch, modified, err := gloo.BuildRouteTablePatch(ogRt, rt.RouteTable, gloo.WithAnnotations(), gloo.WithLabels(), gloo.WithSpec())
 		if err != nil {
 			return pluginTypes.RpcError{ErrorString: err.Error()}
-		}
-
-		r.LogCtx.Debugf("raw patch %s", string(patch))
-		return pluginTypes.RpcError{
-			ErrorString: "plugin not implemented",
 		}
 
 		if !modified {
@@ -69,10 +66,7 @@ func (r *RpcPlugin) handleCanary(ctx context.Context, rollout *v1alpha1.Rollout,
 }
 
 func (r *RpcPlugin) newCanaryDest(stableDest *solov2.DestinationReference, rollout *v1alpha1.Rollout) (*solov2.DestinationReference, error) {
-	canaryDest := &solov2.DestinationReference{}
-	if err := copier.Copy(canaryDest, stableDest); err != nil {
-		return nil, err
-	}
-	canaryDest.GetRef().Name = rollout.Spec.Strategy.Canary.CanaryService
-	return canaryDest, nil
+	newDest := stableDest.Clone().(*solov2.DestinationReference)
+	newDest.GetRef().Name = rollout.Spec.Strategy.Canary.CanaryService
+	return newDest, nil
 }

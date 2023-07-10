@@ -6,9 +6,10 @@ require (
 	github.com/PaesslerAG/gval v1.2.2
 	github.com/PaesslerAG/jsonpath v0.1.1
 	github.com/argoproj/argo-rollouts v1.5.1
+	github.com/davecgh/go-spew v1.1.1
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
 	github.com/hashicorp/go-plugin v1.4.9
-	github.com/jinzhu/copier v0.3.5
+	github.com/qdm12/reprint v0.0.0-20200326205758-722754a53494
 	github.com/sirupsen/logrus v1.9.0
 	github.com/solo-io/solo-apis v1.6.32-0.20230623162622-377f95c0a7c7
 	github.com/stretchr/testify v1.8.2
@@ -21,7 +22,6 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20230105202645-06c439db220b // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.10.1 // indirect
 	github.com/envoyproxy/go-control-plane v0.11.1-0.20230202164348-98e9e8eacc1a // indirect
 	github.com/envoyproxy/protoc-gen-validate v0.9.1 // indirect

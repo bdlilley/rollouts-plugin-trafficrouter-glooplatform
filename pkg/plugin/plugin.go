@@ -176,18 +176,23 @@ func (r *RpcPlugin) getRouteTables(ctx context.Context, rollout *v1alpha1.Rollou
 		return nil, fmt.Errorf("routeTable selector is required")
 	}
 
-	if !strings.EqualFold(glooPluginConfig.RouteTableSelector.Name, "") {
+	if strings.EqualFold(glooPluginConfig.RouteTableSelector.Namespace, "") {
+		r.LogCtx.Debugf("defaulting routeTableSelector namespace to Rollout namespace %s for rollout %s", rollout.Namespace, rollout.Name)
+		glooPluginConfig.RouteTableSelector.Namespace = rollout.Namespace
+	}
+
+	var rts *networkv2.RouteTableList
+
+	if !r.IsTest && !strings.EqualFold(glooPluginConfig.RouteTableSelector.Name, "") {
 		r.LogCtx.Debugf("getRouteTables using ns:name ref %s:%s to get single table", glooPluginConfig.RouteTableSelector.Name, glooPluginConfig.RouteTableSelector.Namespace)
 		result, err := r.Client.RouteTables().GetRouteTable(ctx, k8sclient.ObjectKey{Name: glooPluginConfig.RouteTableSelector.Name, Namespace: glooPluginConfig.RouteTableSelector.Namespace})
 		if err != nil {
 			return nil, err
 		}
 		r.LogCtx.Debugf("getRouteTables using ns:name ref %s:%s found 1 table", glooPluginConfig.RouteTableSelector.Name, glooPluginConfig.RouteTableSelector.Namespace)
-		return []*GlooMatchedRouteTable{
-			{
-				RouteTable: result,
-			},
-		}, nil
+		rts = &networkv2.RouteTableList{
+			Items: []networkv2.RouteTable{*result},
+		}
 	}
 
 	matched := []*GlooMatchedRouteTable{}
@@ -201,10 +206,19 @@ func (r *RpcPlugin) getRouteTables(ctx context.Context, rollout *v1alpha1.Rollou
 		opts.Namespace = glooPluginConfig.RouteTableSelector.Namespace
 	}
 
+	var err error
 	r.LogCtx.Debugf("getRouteTables listing tables with opts %+v", opts)
-	rts, err := r.Client.RouteTables().ListRouteTable(ctx, opts)
-	if err != nil {
-		return nil, err
+	if !r.IsTest {
+		rts, err = r.Client.RouteTables().ListRouteTable(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if r.IsTest {
+		rts = &networkv2.RouteTableList{
+			Items: []networkv2.RouteTable{*r.TestRouteTable},
+		}
 	}
 
 	r.LogCtx.Debugf("getRouteTables listing tables with opts %+v; found %d routeTables", opts, len(rts.Items))
