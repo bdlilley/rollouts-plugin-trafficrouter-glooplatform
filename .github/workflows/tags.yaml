@@ -1,9 +1,14 @@
 # .github/workflows/release.yaml
 
+# on:
+#   push:
+#     branches:
+#       - ben
+
 on:
   push:
-    branches:
-      - ben
+    tags:
+      - '*'
       
 jobs:
   release-linux-amd64:
