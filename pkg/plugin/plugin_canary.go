@@ -43,14 +43,15 @@ func (r *RpcPlugin) handleCanary(ctx context.Context, rollout *v1alpha1.Rollout,
 		if err != nil {
 			return pluginTypes.RpcError{ErrorString: err.Error()}
 		}
-		if !modified {
-			r.LogCtx.Debugf("not udpating rt %s.%s because patch would not modify it", rt.RouteTable.Namespace, rt.RouteTable.Name)
-			return pluginTypes.RpcError{}
-		}
 
 		r.LogCtx.Debugf("raw patch %s", string(patch))
 		return pluginTypes.RpcError{
 			ErrorString: "plugin not implemented",
+		}
+
+		if !modified {
+			r.LogCtx.Debugf("not udpating rt %s.%s because patch would not modify it", rt.RouteTable.Namespace, rt.RouteTable.Name)
+			return pluginTypes.RpcError{}
 		}
 
 		clientPatch := client.RawPatch(types.StrategicMergePatchType, patch)
