@@ -118,6 +118,7 @@ Regardless of which APIs Gloo does/will support, there will always be a Gloo plu
 
 - use github.com/solo-io/solo-apis/client-go/common.gloo.solo.io/v2 ObjectSelector for RouteTable selector to support filter by workspace (currently supports name/namespace/label selector)
   - replace DumbObjectSelector; maybe there is already a k8s type to use for that
+- implement setheader routes
 - set up unit tests; ./pkg/plugin/plugin_test.txt and ./pkg/mocks/plugin.go have a partial setup copied from the gatewayAPI plugin
 - support different forwardTo.destination.kinds (might be transparent, at least need to test)
 - account for a matched destination already having "static" (non-canary) weighted routing
@@ -125,14 +126,31 @@ Regardless of which APIs Gloo does/will support, there will always be a Gloo plu
 - handle different destination types between stable and canary
 - remove canary destination when Rollout is complete (right now just sets to 0 weight at end of promotion)
 - handle named ports
-- add more advanced features to the rollout metadata that is passed to our plugin; i.e. this section could be enhanced with other Gloo capabilities:
+
+
 
 ```yaml
       trafficRouting:
         plugins:
           solo-io/glooplatformAPI:
-            routeTableName: default
-            routeTableNamespace: gloo-mesh
-            destinationKind: SERVICE
-            destinationNamespace: gloo-rollout-demo
+            # required; must provide label selector or explicit RouteTable name
+            routeTableSelector:
+              # all labels specified must be exact match on the RT
+              # ; ignored if name is provided
+              labels:
+                app: demo
+              # defaults to the namespace of the rollout if not provided
+              namespace: gloo-mesh
+              # if name is provided, label selector is ignored
+              # name: my-rt-name
+
+            # optional; select specific routes in matched RouteTable; useful
+            # if multiple routes have the same backend but you don't want to canary
+            # all of them
+            routeSelector:
+              # select routes by their labels; ignored if route name is provided
+              labels:
+                route: demo-preview
+              # if name is provided, label selector is ignored
+              # name: route-name
 ```

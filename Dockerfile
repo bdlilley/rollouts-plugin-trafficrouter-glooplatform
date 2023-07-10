@@ -10,7 +10,7 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o /src/main
+RUN --mount=type=cache,target=/root/.cache/go-build go build -o /src/main
 
 FROM quay.io/argoproj/argo-rollouts:v1.5.1
 

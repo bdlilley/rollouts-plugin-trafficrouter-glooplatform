@@ -260,13 +260,19 @@ func (g *GlooMatchedRouteTable) matchRoutes(logCtx *logrus.Entry, rollout *v1alp
 			}
 			// if labels provided, skip if route labels do not contain all specified labels
 			if trafficConfig.RouteSelector.Labels != nil {
-				for k, v := range trafficConfig.RouteSelector.Labels {
-					if vv, ok := httpRoute.Labels[k]; ok {
-						if !strings.EqualFold(v, vv) {
-							logCtx.Debugf("skipping route %s.%s because route labels do not contain %s=%s", g.RouteTable.Name, httpRoute.Name, k, v)
-							continue
+				matchedLabels := func() bool {
+					for k, v := range trafficConfig.RouteSelector.Labels {
+						if vv, ok := httpRoute.Labels[k]; ok {
+							if !strings.EqualFold(v, vv) {
+								logCtx.Debugf("skipping route %s.%s because route labels do not contain %s=%s", g.RouteTable.Name, httpRoute.Name, k, v)
+								return false
+							}
 						}
 					}
+					return true
+				}()
+				if !matchedLabels {
+					continue
 				}
 			}
 			logCtx.Debugf("route %s.%s passed RouteSelector", g.RouteTable.Name, httpRoute.Name)
