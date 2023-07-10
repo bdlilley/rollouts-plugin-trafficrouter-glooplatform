@@ -8,6 +8,7 @@ require (
 	github.com/argoproj/argo-rollouts v1.5.1
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
 	github.com/hashicorp/go-plugin v1.4.9
+	github.com/jinzhu/copier v0.3.5
 	github.com/sirupsen/logrus v1.9.0
 	github.com/solo-io/solo-apis v1.6.32-0.20230623162622-377f95c0a7c7
 	github.com/stretchr/testify v1.8.2
