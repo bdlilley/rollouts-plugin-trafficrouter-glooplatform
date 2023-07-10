@@ -217,7 +217,7 @@ func (r *RpcPlugin) SetWeight(rollout *v1alpha1.Rollout, desiredWeight int32, ad
 	}
 
 	// get the matched routetables
-	matchedRts, err := r.getRouteTables(ctx, glooPluginConfig)
+	matchedRts, err := r.getRouteTables(ctx, rollout, glooPluginConfig)
 	if err != nil {
 		return pluginTypes.RpcError{
 			ErrorString: err.Error(),
@@ -345,7 +345,7 @@ func getPluginConfig(rollout *v1alpha1.Rollout) (*GlooPlatformAPITrafficRouting,
 	return &glooplatformConfig, nil
 }
 
-func (r *RpcPlugin) getRouteTables(ctx context.Context, glooPluginConfig *GlooPlatformAPITrafficRouting) ([]*GlooMatchedRouteTable, error) {
+func (r *RpcPlugin) getRouteTables(ctx context.Context, rollout *v1alpha1.Rollout, glooPluginConfig *GlooPlatformAPITrafficRouting) ([]*GlooMatchedRouteTable, error) {
 	if !strings.EqualFold(glooPluginConfig.RouteTableSelector.Name, "") {
 		r.LogCtx.Debugf("getRouteTables using ns:name ref %s:%s to get single table", glooPluginConfig.RouteTableSelector.Name, glooPluginConfig.RouteTableSelector.Namespace)
 		result, err := r.Client.RouteTables().GetRouteTable(ctx, k8sclient.ObjectKey{Name: glooPluginConfig.RouteTableSelector.Name, Namespace: glooPluginConfig.RouteTableSelector.Namespace})
