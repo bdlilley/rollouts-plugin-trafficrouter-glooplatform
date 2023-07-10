@@ -31,6 +31,8 @@ func (r *RpcPlugin) handleCanary(ctx context.Context, rollout *v1alpha1.Rollout,
 
 		// build patches
 		desiredRt := rt
+
+		// todo update desiredRt
 		patch, modified, err := gloo.BuildRouteTablePatch(rt.RouteTable, desiredRt.RouteTable, gloo.WithAnnotations(), gloo.WithLabels(), gloo.WithSpec())
 		if err != nil {
 			return pluginTypes.RpcError{ErrorString: err.Error()}

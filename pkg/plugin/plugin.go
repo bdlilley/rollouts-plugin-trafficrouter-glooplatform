@@ -52,15 +52,15 @@ type DumbObjectSelector struct {
 }
 
 type GlooDestinationMatcher struct {
-	Regexp *GlooDestinationMatcherRegexp
-	Ref    *solov2.ObjectReference
+	Regexp *GlooDestinationMatcherRegexp `json:"regexp" protobuf:"bytes,1,name=regexp"`
+	Ref    *solov2.ObjectReference       `json:"ref" protobuf:"bytes,2,name=ref"`
 }
 
 type GlooDestinationMatcherRegexp struct {
-	NameRegexp      *regexp.Regexp
-	NamespaceRegexp *regexp.Regexp
-	KindRegexp      *regexp.Regexp
-	ClusterRegexp   *regexp.Regexp
+	NameRegexp      *regexp.Regexp `json:"nameRegexp" protobuf:"bytes,1,name=nameRegexp"`
+	NamespaceRegexp *regexp.Regexp `json:"namespaceRegexp" protobuf:"bytes,2,name=namespaceRegexp"`
+	KindRegexp      *regexp.Regexp `json:"kindRegexp" protobuf:"bytes,3,name=kindRegexp"`
+	ClusterRegexp   *regexp.Regexp `json:"clusterRegexp" protobuf:"bytes,4,name=clusterRegexp"`
 }
 
 type GlooMatchedRouteTable struct {

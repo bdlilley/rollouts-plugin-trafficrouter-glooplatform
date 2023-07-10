@@ -30,10 +30,19 @@ spec:
       trafficRouting:
         plugins:
           solo-io/glooplatformAPI:
-            routeTableName: default
-            routeTableNamespace: gloo-mesh
-            destinationKind: SERVICE
-            destinationNamespace: gloo-rollout-demo
+            routeTableSelector:
+              labels:
+                app: demo
+              # name: default
+              # namespace: gloo-mesh
+            destinationMatcher:
+              ref:
+                name: default
+                namespace: gloo-mesh
+            # routeTableName: default
+            # routeTableNamespace: gloo-mesh
+            # destinationKind: SERVICE
+            # destinationNamespace: gloo-rollout-demo
       steps:
       - setWeight: 10
       - pause: {}
